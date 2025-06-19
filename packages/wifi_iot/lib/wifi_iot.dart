@@ -21,6 +21,161 @@ const serializeNetworkSecurityMap = <NetworkSecurity, String>{
   NetworkSecurity.NONE: "NONE",
 };
 
+/// WiFi connection error codes
+enum WiFiConnectionError {
+  /// Connection successful
+  SUCCESS,
+
+  /// Unknown error
+  UNKNOWN_ERROR,
+
+  /// Invalid SSID (empty or too long)
+  INVALID_SSID,
+
+  /// Invalid BSSID format
+  INVALID_BSSID,
+
+  /// WEP security not supported on Android SDK >= 29
+  WEP_NOT_SUPPORTED,
+
+  /// WiFi is not enabled
+  WIFI_NOT_ENABLED,
+
+  /// Network not found during scan
+  NETWORK_NOT_FOUND,
+
+  /// Authentication failed (wrong password)
+  AUTHENTICATION_FAILED,
+
+  /// Connection timeout
+  CONNECTION_TIMEOUT,
+
+  /// Network configuration failed
+  CONFIGURATION_FAILED,
+
+  /// Permission denied
+  PERMISSION_DENIED,
+
+  /// Network suggestion failed
+  NETWORK_SUGGESTION_FAILED,
+
+  /// Network request failed
+  NETWORK_REQUEST_FAILED,
+
+  /// Device not connected to any network
+  NOT_CONNECTED,
+
+  /// Network unavailable
+  NETWORK_UNAVAILABLE,
+}
+
+/// WiFi connection result containing success status and error information
+class WiFiConnectionResult {
+  /// Whether the connection was successful
+  final bool success;
+
+  /// Error code if connection failed
+  final WiFiConnectionError errorCode;
+
+  /// Human-readable error message
+  final String? errorMessage;
+
+  /// Additional error details
+  final String? errorDetails;
+
+  const WiFiConnectionResult({
+    required this.success,
+    required this.errorCode,
+    this.errorMessage,
+    this.errorDetails,
+  });
+
+  /// Create a successful result
+  factory WiFiConnectionResult.success() {
+    return WiFiConnectionResult(
+      success: true,
+      errorCode: WiFiConnectionError.SUCCESS,
+    );
+  }
+
+  /// Create a failed result with error information
+  factory WiFiConnectionResult.failure({
+    required WiFiConnectionError errorCode,
+    String? errorMessage,
+    String? errorDetails,
+  }) {
+    return WiFiConnectionResult(
+      success: false,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+      errorDetails: errorDetails,
+    );
+  }
+
+  /// Create result from platform exception
+  factory WiFiConnectionResult.fromPlatformException(PlatformException e) {
+    WiFiConnectionError errorCode = WiFiConnectionError.UNKNOWN_ERROR;
+
+    // Map platform error codes to our error codes
+    switch (e.code) {
+      case 'WifiIotPlugin.Permission':
+        errorCode = WiFiConnectionError.PERMISSION_DENIED;
+        break;
+      case 'WEP_NOT_SUPPORTED':
+        errorCode = WiFiConnectionError.WEP_NOT_SUPPORTED;
+        break;
+      case 'INVALID_BSSID':
+        errorCode = WiFiConnectionError.INVALID_BSSID;
+        break;
+      case 'NETWORK_SUGGESTION_FAILED':
+        errorCode = WiFiConnectionError.NETWORK_SUGGESTION_FAILED;
+        break;
+      case 'NETWORK_UNAVAILABLE':
+        errorCode = WiFiConnectionError.NETWORK_UNAVAILABLE;
+        break;
+      case 'NETWORK_LOST':
+        errorCode = WiFiConnectionError.CONNECTION_TIMEOUT;
+        break;
+      case 'CONNECTION_TIMEOUT':
+        errorCode = WiFiConnectionError.CONNECTION_TIMEOUT;
+        break;
+      case 'AUTHENTICATION_FAILED':
+        errorCode = WiFiConnectionError.AUTHENTICATION_FAILED;
+        break;
+      case 'CONFIGURATION_FAILED':
+        errorCode = WiFiConnectionError.CONFIGURATION_FAILED;
+        break;
+      default:
+        // Fallback to message-based detection for backward compatibility
+        if (e.message?.contains('WEP is not supported') == true) {
+          errorCode = WiFiConnectionError.WEP_NOT_SUPPORTED;
+        } else if (e.message?.contains('Invalid BSSID') == true) {
+          errorCode = WiFiConnectionError.INVALID_BSSID;
+        } else if (e.message?.contains('timeout') == true) {
+          errorCode = WiFiConnectionError.CONNECTION_TIMEOUT;
+        } else if (e.message?.contains('Authentication') == true) {
+          errorCode = WiFiConnectionError.AUTHENTICATION_FAILED;
+        }
+        break;
+    }
+
+    return WiFiConnectionResult.failure(
+      errorCode: errorCode,
+      errorMessage: e.message,
+      errorDetails: e.details?.toString(),
+    );
+  }
+
+  @override
+  String toString() {
+    if (success) {
+      return 'WiFiConnectionResult(success: true)';
+    } else {
+      return 'WiFiConnectionResult(success: false, errorCode: $errorCode, errorMessage: $errorMessage)';
+    }
+  }
+}
+
 const MethodChannel _channel = const MethodChannel('wifi_iot');
 @Deprecated(
     "This is discontinued, switch to new `wifi_scan` plugin by WiFiFlutter. "
@@ -331,6 +486,67 @@ class WiFiForIoTPlugin {
     bool isHidden = false,
     int timeoutInSeconds = 30,
   }) async {
+    final result = await connectWithResult(
+      ssid,
+      bssid: bssid,
+      password: password,
+      security: security,
+      joinOnce: joinOnce,
+      withInternet: withInternet,
+      isHidden: isHidden,
+      timeoutInSeconds: timeoutInSeconds,
+    );
+    return result.success;
+  }
+
+  /// Connect to the requested AP Wi-Fi network with detailed error information.
+  ///
+  /// This method provides detailed error information when connection fails,
+  /// unlike the basic [connect] method which only returns a boolean.
+  ///
+  /// Once connected, to route network traffic via the network use
+  /// [forceWifiUsage].
+  ///
+  /// @param [ssid] The SSID of the network to connect to.
+  ///   In case multiple networks share the same SSID, which one is connected to
+  ///   is undefined. Use the optional [bssid] parameters if you want to specify
+  ///   the network. The SSID must be between 1 and 32 characters.
+  ///
+  /// @param [bssid] The BSSID (unique id) of the network to connect to.
+  ///   This allows to specify exactly which network to connect to.
+  // ignore: deprecated_member_use_from_same_package
+  ///   To obtain the BSSID, use [loadWifiList] (Android only) or save the value
+  ///   from a previous connection.
+  ///   On Android, specifying the BSSID will also result in no system message
+  ///   requesting permission being shown to the user.
+  ///   Does nothing on iOS.
+  ///
+  /// @param [password] The password of the network. Should only be null in case
+  ///   [security] NetworkSecurity.NONE is used.
+  ///
+  /// @param [security] The security type of the network. [NetworkSecurity.NONE]
+  ///   means no password is required.
+  ///   On Android, from version 10 (Q) onward, [NetworkSecurity.WEP] is no
+  ///   longer supported.
+  ///
+  /// @param [joinOnce] If true, the network will be removed on exit.
+  ///
+  /// @param [withInternet] Whether the connected network has internet access.
+  ///   Android only.
+  ///
+  /// @param [isHidden] Whether the SSID is hidden (not broadcasted by the AP).
+  ///
+  /// @returns [WiFiConnectionResult] containing success status and error details.
+  static Future<WiFiConnectionResult> connectWithResult(
+    String ssid, {
+    String? bssid,
+    String? password,
+    NetworkSecurity security = NetworkSecurity.NONE,
+    bool joinOnce = true,
+    bool withInternet = false,
+    bool isHidden = false,
+    int timeoutInSeconds = 30,
+  }) async {
     // https://en.wikipedia.org/wiki/Service_set_(802.11_network)
     // According to IEEE Std 802.11, a SSID must be between 0 and 32 bytes
     // either with no encoding or UTF8-encoded.
@@ -339,14 +555,27 @@ class WiFiForIoTPlugin {
     // connecting to a specific network.
     // TODO: support any binary sequence as required instead of just strings.
     if (ssid.length == 0 || ssid.length > 32) {
-      print("Invalid SSID");
-      return false;
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.INVALID_SSID,
+        errorMessage: "Invalid SSID: must be between 1 and 32 characters",
+        errorDetails: "SSID length: ${ssid.length}",
+      );
     }
 
-    if (!Platform.isIOS && !await isEnabled()) await setEnabled(true);
-    bool? bResult;
+    if (!Platform.isIOS && !await isEnabled()) {
+      try {
+        await setEnabled(true);
+      } catch (e) {
+        return WiFiConnectionResult.failure(
+          errorCode: WiFiConnectionError.WIFI_NOT_ENABLED,
+          errorMessage: "Failed to enable WiFi",
+          errorDetails: e.toString(),
+        );
+      }
+    }
+
     try {
-      bResult = await _channel.invokeMethod('connect', {
+      final bool? bResult = await _channel.invokeMethod('connect', {
         "ssid": ssid.toString(),
         "bssid": bssid?.toString(),
         "password": password?.toString(),
@@ -356,10 +585,31 @@ class WiFiForIoTPlugin {
         "timeout_in_seconds": timeoutInSeconds,
         "security": serializeNetworkSecurityMap[security],
       });
+
+      if (bResult == true) {
+        return WiFiConnectionResult.success();
+      } else {
+        return WiFiConnectionResult.failure(
+          errorCode: WiFiConnectionError.CONNECTION_TIMEOUT,
+          errorMessage: "Connection failed or timed out",
+          errorDetails: "Platform returned false",
+        );
+      }
+    } on PlatformException catch (e) {
+      return WiFiConnectionResult.fromPlatformException(e);
     } on MissingPluginException catch (e) {
-      print("MissingPluginException : ${e.toString()}");
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.UNKNOWN_ERROR,
+        errorMessage: "Plugin not available",
+        errorDetails: e.toString(),
+      );
+    } catch (e) {
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.UNKNOWN_ERROR,
+        errorMessage: "Unexpected error occurred",
+        errorDetails: e.toString(),
+      );
     }
-    return bResult ?? false;
   }
 
   /// Register a network with the system in the device's wireless networks.
@@ -467,6 +717,58 @@ class WiFiForIoTPlugin {
     bool withInternet = false,
     int timeoutInSeconds = 30,
   }) async {
+    final result = await findAndConnectWithResult(
+      ssid,
+      bssid: bssid,
+      password: password,
+      joinOnce: joinOnce,
+      withInternet: withInternet,
+      timeoutInSeconds: timeoutInSeconds,
+    );
+    return result.success;
+  }
+
+  /// Scan for Wi-Fi networks and connect to the requested AP Wi-Fi network if
+  /// found, with detailed error information.
+  /// Android only.
+  ///
+  /// This method provides detailed error information when connection fails,
+  /// unlike the basic [findAndConnect] method which only returns a boolean.
+  ///
+  /// Once connected, to route network traffic via the network use
+  /// [forceWifiUsage].
+  ///
+  /// @param [ssid] The SSID of the network to connect to.
+  ///   In case multiple networks share the same SSID, which one is connected to
+  ///   is undefined. Use the optional [bssid] parameters if you want to specify
+  ///   the network. The SSID must be between 1 and 32 characters.
+  ///
+  /// @param [bssid] The BSSID (unique id) of the network to connect to.
+  ///   This allows to specify exactly which network to connect to.
+  // ignore: deprecated_member_use_from_same_package
+  ///   To obtain the BSSID, use [loadWifiList] (Android only) or save the value
+  ///   from a previous connection.
+  ///   On Android, specifying the BSSID will also result in no system message
+  ///   requesting permission being shown to the user.
+  ///   Does nothing on iOS.
+  ///
+  /// @param [password] The password of the network. Should only be null in case
+  ///   the network is not password protected.
+  ///
+  /// @param [joinOnce] If true, the network will be removed on exit.
+  ///
+  /// @param [withInternet] Whether the connected network has internet access.
+  ///   Android only.
+  ///
+  /// @returns [WiFiConnectionResult] containing success status and error details.
+  static Future<WiFiConnectionResult> findAndConnectWithResult(
+    String ssid, {
+    String? bssid,
+    String? password,
+    bool joinOnce = true,
+    bool withInternet = false,
+    int timeoutInSeconds = 30,
+  }) async {
     // https://en.wikipedia.org/wiki/Service_set_(802.11_network)
     // According to IEEE Std 802.11, a SSID must be between 0 and 32 bytes
     // either with no encoding or UTF8-encoded.
@@ -474,17 +776,28 @@ class WiFiForIoTPlugin {
     // (wildcard SSID), and thus does not have meaning in the context of
     // connecting to a specific network.
     // TODO: support any binary sequence as required instead of just strings.
-    if (ssid.length == 0 || ssid.length > 32) {
-      print("Invalid SSID");
-      return false;
+    if (ssid.isEmpty || ssid.length > 32) {
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.INVALID_SSID,
+        errorMessage: "Invalid SSID: must be between 1 and 32 characters",
+        errorDetails: "SSID length: ${ssid.length}",
+      );
     }
 
     if (!await isEnabled()) {
-      await setEnabled(true);
+      try {
+        await setEnabled(true);
+      } catch (e) {
+        return WiFiConnectionResult.failure(
+          errorCode: WiFiConnectionError.WIFI_NOT_ENABLED,
+          errorMessage: "Failed to enable WiFi",
+          errorDetails: e.toString(),
+        );
+      }
     }
-    bool? bResult;
+
     try {
-      bResult = await _channel.invokeMethod('findAndConnect', {
+      final bool? bResult = await _channel.invokeMethod('findAndConnect', {
         "ssid": ssid.toString(),
         "bssid": bssid?.toString(),
         "password": password?.toString(),
@@ -492,10 +805,31 @@ class WiFiForIoTPlugin {
         "with_internet": withInternet,
         "timeout_in_seconds": timeoutInSeconds,
       });
+
+      if (bResult == true) {
+        return WiFiConnectionResult.success();
+      } else {
+        return WiFiConnectionResult.failure(
+          errorCode: WiFiConnectionError.NETWORK_NOT_FOUND,
+          errorMessage: "Network not found or connection failed",
+          errorDetails: "Platform returned false",
+        );
+      }
+    } on PlatformException catch (e) {
+      return WiFiConnectionResult.fromPlatformException(e);
     } on MissingPluginException catch (e) {
-      print("MissingPluginException : ${e.toString()}");
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.UNKNOWN_ERROR,
+        errorMessage: "Plugin not available",
+        errorDetails: e.toString(),
+      );
+    } catch (e) {
+      return WiFiConnectionResult.failure(
+        errorCode: WiFiConnectionError.UNKNOWN_ERROR,
+        errorMessage: "Unexpected error occurred",
+        errorDetails: e.toString(),
+      );
     }
-    return bResult ?? false;
   }
 
   /// Returns whether the device is connected to a Wi-Fi network.
