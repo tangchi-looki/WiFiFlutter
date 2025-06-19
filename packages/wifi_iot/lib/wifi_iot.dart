@@ -422,6 +422,11 @@ class WiFiForIoTPlugin {
   /// specifically designed to work better with Samsung and other OEM devices
   /// that may have issues with the standard forceWifiUsage method.
   ///
+  /// The Android implementation uses native retry logic with multiple strategies:
+  /// 1. Use existing joined network if available
+  /// 2. Find and bind to current WiFi network
+  /// 3. Scan all networks and bind to available WiFi
+  ///
   /// @param useWifi Whether to force WiFi usage or disable it
   /// @param retryCount Number of retry attempts (default: 3)
   /// @param retryDelay Delay between retries in milliseconds (default: 1000)
@@ -431,6 +436,36 @@ class WiFiForIoTPlugin {
     int retryCount = 3,
     int retryDelay = 1000,
   }) async {
+    final Map<String, dynamic> htArguments = {
+      "useWifi": useWifi,
+      "retryCount": retryCount,
+      "retryDelay": retryDelay,
+    };
+
+    bool? result;
+    try {
+      result =
+          await _channel.invokeMethod('forceWifiUsageWithRetry', htArguments);
+    } on MissingPluginException catch (e) {
+      print("MissingPluginException : ${e.toString()}");
+      // Fallback to Flutter-side retry logic for older plugin versions
+      return await _fallbackRetryLogic(useWifi, retryCount, retryDelay);
+    } catch (e) {
+      print("forceWifiUsageWithRetry failed: $e");
+      // Fallback to Flutter-side retry logic
+      return await _fallbackRetryLogic(useWifi, retryCount, retryDelay);
+    }
+
+    return result ?? false;
+  }
+
+  /// Fallback retry logic implemented on Flutter side
+  static Future<bool> _fallbackRetryLogic(
+    bool useWifi,
+    int retryCount,
+    int retryDelay,
+  ) async {
+    print("Using fallback retry logic");
     for (int attempt = 0; attempt < retryCount; attempt++) {
       try {
         final bool result = await forceWifiUsage(useWifi);
@@ -443,7 +478,7 @@ class WiFiForIoTPlugin {
           await Future.delayed(Duration(milliseconds: retryDelay));
         }
       } catch (e) {
-        print("forceWifiUsageWithRetry attempt ${attempt + 1} failed: $e");
+        print("Fallback retry attempt ${attempt + 1} failed: $e");
         if (attempt < retryCount - 1) {
           await Future.delayed(Duration(milliseconds: retryDelay));
         }
