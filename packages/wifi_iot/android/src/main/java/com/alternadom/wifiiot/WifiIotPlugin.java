@@ -818,44 +818,146 @@ public class WifiIotPlugin
 
     boolean success = true;
     boolean shouldReply = true;
+
     if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP && manager != null) {
       if (useWifi) {
-        // SDK-31 If not previously in a disconnected state, select the joinedNetwork to
-        // ensure
-        // the correct network is used for communications, else fallback to network
-        // manager network.
-        // https://developer.android.com/about/versions/12/behavior-changes-12#concurrent-connections
-        if (joinedNetwork != null) {
-          success = selectNetwork(joinedNetwork, manager);
-        } else {
-          NetworkRequest.Builder builder;
-          builder = new NetworkRequest.Builder();
-          /// set the transport type do WIFI
-          builder.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
-          shouldReply = false;
-          manager.requestNetwork(
-              builder.build(),
-              new ConnectivityManager.NetworkCallback() {
-                @Override
-                public void onAvailable(Network network) {
-                  super.onAvailable(network);
-                  manager.unregisterNetworkCallback(this);
-                  onAvailableNetwork(manager, network, poResult);
-                }
-              });
-        }
+        // Try multiple approaches for better compatibility across different Android
+        // versions and OEMs
+        success = forceWifiUsageWithFallback(manager, poResult);
+        shouldReply = false; // Will be handled by callback or fallback
       } else {
         success = selectNetwork(null, manager);
       }
     }
+
     if (shouldReply) {
       poResult.success(success);
     }
   }
 
+  /// Enhanced method with multiple fallback strategies for better OEM
+  /// compatibility
+  private boolean forceWifiUsageWithFallback(final ConnectivityManager manager, final Result poResult) {
+    // Strategy 1: Use existing joined network if available (most reliable)
+    if (joinedNetwork != null) {
+      boolean success = selectNetwork(joinedNetwork, manager);
+      Log.d(WifiIotPlugin.class.getSimpleName(), "Using existing joined network: " + success);
+      poResult.success(success);
+      return success;
+    }
+
+    // Strategy 2: Find current WiFi network and bind to it
+    Network currentWifiNetwork = getCurrentWifiNetwork(manager);
+    if (currentWifiNetwork != null) {
+      boolean success = selectNetwork(currentWifiNetwork, manager);
+      Log.d(WifiIotPlugin.class.getSimpleName(), "Using current WiFi network: " + success);
+      poResult.success(success);
+      return success;
+    }
+
+    // Strategy 3: Request WiFi network with timeout (fallback for Samsung and other
+    // OEMs)
+    requestWifiNetworkWithTimeout(manager, poResult);
+    return true; // Will be handled by callback
+  }
+
+  /// Get the currently connected WiFi network
+  private Network getCurrentWifiNetwork(ConnectivityManager manager) {
+    try {
+      Network[] networks = manager.getAllNetworks();
+      for (Network network : networks) {
+        NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+        if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+          // Additional check for Samsung devices - ensure network is actually connected
+          NetworkInfo networkInfo = manager.getNetworkInfo(network);
+          if (networkInfo != null && networkInfo.isConnected()) {
+            Log.d(WifiIotPlugin.class.getSimpleName(), "Found connected WiFi network");
+            return network;
+          }
+        }
+      }
+    } catch (Exception e) {
+      Log.e(WifiIotPlugin.class.getSimpleName(), "Error finding current WiFi network", e);
+    }
+    return null;
+  }
+
   /// Method to check if wifi is enabled
   private void isEnabled(Result poResult) {
     poResult.success(moWiFi.isWifiEnabled());
+  }
+
+  /// Request WiFi network with enhanced timeout and retry logic
+  private void requestWifiNetworkWithTimeout(final ConnectivityManager manager, final Result poResult) {
+    NetworkRequest.Builder builder = new NetworkRequest.Builder();
+    builder.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
+
+    // For Samsung and other OEMs, be more specific about network requirements
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
+    }
+
+    final Handler timeoutHandler = new Handler(Looper.getMainLooper());
+    final boolean[] callbackHandled = { false };
+
+    ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+      @Override
+      public void onAvailable(Network network) {
+        super.onAvailable(network);
+        if (!callbackHandled[0]) {
+          callbackHandled[0] = true;
+          manager.unregisterNetworkCallback(this);
+          timeoutHandler.removeCallbacksAndMessages(null);
+
+          boolean success = selectNetwork(network, manager);
+          Log.d(WifiIotPlugin.class.getSimpleName(), "Network request callback success: " + success);
+          poResult.success(success);
+        }
+      }
+
+      @Override
+      public void onUnavailable() {
+        super.onUnavailable();
+        if (!callbackHandled[0]) {
+          callbackHandled[0] = true;
+          timeoutHandler.removeCallbacksAndMessages(null);
+          Log.w(WifiIotPlugin.class.getSimpleName(), "Network request unavailable, trying alternative approach");
+
+          // Fallback: Try to use any available WiFi network
+          Network fallbackNetwork = getCurrentWifiNetwork(manager);
+          boolean success = fallbackNetwork != null && selectNetwork(fallbackNetwork, manager);
+          poResult.success(success);
+        }
+      }
+    };
+
+    // Set timeout for Samsung and other problematic devices
+    timeoutHandler.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        if (!callbackHandled[0]) {
+          callbackHandled[0] = true;
+          manager.unregisterNetworkCallback(callback);
+          Log.w(WifiIotPlugin.class.getSimpleName(), "Network request timeout, using fallback");
+
+          // Final fallback: Try to bind to any available WiFi network
+          Network fallbackNetwork = getCurrentWifiNetwork(manager);
+          boolean success = fallbackNetwork != null && selectNetwork(fallbackNetwork, manager);
+          poResult.success(success);
+        }
+      }
+    }, 5000); // 5 second timeout
+
+    try {
+      manager.requestNetwork(builder.build(), callback);
+    } catch (Exception e) {
+      Log.e(WifiIotPlugin.class.getSimpleName(), "Failed to request network", e);
+      if (!callbackHandled[0]) {
+        callbackHandled[0] = true;
+        timeoutHandler.removeCallbacksAndMessages(null);
+        poResult.success(false);
+      }
+    }
   }
 
   /// Method to connect/disconnect wifi service
