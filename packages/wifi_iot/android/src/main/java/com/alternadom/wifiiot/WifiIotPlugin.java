@@ -1137,18 +1137,59 @@ public class WifiIotPlugin
         Boolean withInternet = poCall.argument("with_internet");
         Integer timeoutInSeconds = poCall.argument("timeout_in_seconds");
 
+        Log.d(WifiIotPlugin.class.getSimpleName(), "=== _findAndConnect START ===");
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Target SSID: " + ssid);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Target BSSID: " + bssid);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Password provided: " + (password != null && !password.isEmpty()));
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Join once: " + joinOnce);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "With internet: " + withInternet);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Timeout: " + timeoutInSeconds + " seconds");
+
         String security = null;
         List<ScanResult> results = moWiFi.getScanResults();
-        for (ScanResult result : results) {
-          String resultString = "" + result.SSID;
-          if (ssid.equals(resultString)
-              && (result.BSSID == null || bssid == null || result.BSSID.equals(bssid))) {
-            security = getSecurityType(result);
-            if (bssid == null) {
-              bssid = result.BSSID;
+        Log.d(WifiIotPlugin.class.getSimpleName(),
+            "WiFi scan results count: " + (results != null ? results.size() : 0));
+
+        boolean networkFound = false;
+        if (results != null) {
+          for (int i = 0; i < results.size(); i++) {
+            ScanResult result = results.get(i);
+            String resultString = "" + result.SSID;
+            Log.d(WifiIotPlugin.class.getSimpleName(), "Scan result [" + i + "]: SSID='" + resultString + "', BSSID="
+                + result.BSSID + ", capabilities=" + result.capabilities);
+
+            if (ssid.equals(resultString)
+                && (result.BSSID == null || bssid == null || result.BSSID.equals(bssid))) {
+              networkFound = true;
+              security = getSecurityType(result);
+              Log.d(WifiIotPlugin.class.getSimpleName(), "*** NETWORK FOUND ***");
+              Log.d(WifiIotPlugin.class.getSimpleName(),
+                  "Matched network - SSID: " + resultString + ", BSSID: " + result.BSSID);
+              Log.d(WifiIotPlugin.class.getSimpleName(), "Security type detected: " + security);
+              Log.d(WifiIotPlugin.class.getSimpleName(), "Network capabilities: " + result.capabilities);
+
+              if (bssid == null) {
+                bssid = result.BSSID;
+                Log.d(WifiIotPlugin.class.getSimpleName(), "BSSID updated to: " + bssid);
+              }
+              break;
             }
           }
         }
+
+        if (!networkFound) {
+          Log.w(WifiIotPlugin.class.getSimpleName(), "*** NETWORK NOT FOUND ***");
+          Log.w(WifiIotPlugin.class.getSimpleName(), "Target SSID '" + ssid + "' not found in scan results");
+          if (bssid != null) {
+            Log.w(WifiIotPlugin.class.getSimpleName(), "Target BSSID: " + bssid);
+          }
+        }
+
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Final connection parameters:");
+        Log.d(WifiIotPlugin.class.getSimpleName(), "  SSID: " + ssid);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "  BSSID: " + bssid);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "  Security: " + security);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "Calling connectTo method...");
 
         connectTo(
             poResult,
@@ -1166,14 +1207,18 @@ public class WifiIotPlugin
 
   private static String getSecurityType(ScanResult scanResult) {
     String capabilities = scanResult.capabilities;
+    Log.d(WifiIotPlugin.class.getSimpleName(), "getSecurityType - analyzing capabilities: " + capabilities);
 
     if (capabilities.contains("WPA")
         || capabilities.contains("WPA2")
         || capabilities.contains("WPA/WPA2 PSK")) {
+      Log.d(WifiIotPlugin.class.getSimpleName(), "getSecurityType - detected WPA security");
       return "WPA";
     } else if (capabilities.contains("WEP")) {
+      Log.d(WifiIotPlugin.class.getSimpleName(), "getSecurityType - detected WEP security");
       return "WEP";
     } else {
+      Log.d(WifiIotPlugin.class.getSimpleName(), "getSecurityType - no security detected (open network)");
       return null;
     }
   }
