@@ -4,10 +4,12 @@ import 'dart:io';
 
 class SamsungCompatibilityExample extends StatefulWidget {
   @override
-  _SamsungCompatibilityExampleState createState() => _SamsungCompatibilityExampleState();
+  _SamsungCompatibilityExampleState createState() =>
+      _SamsungCompatibilityExampleState();
 }
 
-class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExample> {
+class _SamsungCompatibilityExampleState
+    extends State<SamsungCompatibilityExample> {
   String _connectionStatus = 'Not connected';
   String _forceWifiStatus = 'Not forced';
   String _deviceInfo = '';
@@ -157,15 +159,19 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
     try {
       final result = await WiFiForIoTPlugin.connectWithResult(
         _ssidController.text,
-        password: _passwordController.text.isEmpty ? null : _passwordController.text,
-        security: _passwordController.text.isEmpty ? NetworkSecurity.NONE : NetworkSecurity.WPA,
+        password:
+            _passwordController.text.isEmpty ? null : _passwordController.text,
+        security: _passwordController.text.isEmpty
+            ? NetworkSecurity.NONE
+            : NetworkSecurity.WPA,
       );
 
       setState(() {
         if (result.success) {
           _connectionStatus = 'Connected successfully!';
         } else {
-          _connectionStatus = 'Connection failed: ${result.errorCode}\n${result.errorMessage}';
+          _connectionStatus =
+              'Connection failed: ${result.errorCode}\n${result.errorMessage}';
         }
         _isConnecting = false;
       });
@@ -192,13 +198,17 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
       // 1. 连接到网络
       final result = await WiFiForIoTPlugin.connectWithResult(
         _ssidController.text,
-        password: _passwordController.text.isEmpty ? null : _passwordController.text,
-        security: _passwordController.text.isEmpty ? NetworkSecurity.NONE : NetworkSecurity.WPA,
+        password:
+            _passwordController.text.isEmpty ? null : _passwordController.text,
+        security: _passwordController.text.isEmpty
+            ? NetworkSecurity.NONE
+            : NetworkSecurity.WPA,
       );
 
       if (!result.success) {
         setState(() {
-          _connectionStatus = 'Connection failed: ${result.errorCode}\n${result.errorMessage}';
+          _connectionStatus =
+              'Connection failed: ${result.errorCode}\n${result.errorMessage}';
           _isConnecting = false;
         });
         return;
@@ -225,7 +235,7 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
         _connectionStatus = 'Connected and verified! Forcing WiFi usage...';
       });
 
-      // 4. 强制使用 WiFi（增强方法）
+      // 4. 强制使用 WiFi（增强方法 - 原生重试逻辑）
       bool forceSuccess = await WiFiForIoTPlugin.forceWifiUsageWithRetry(
         true,
         retryCount: 5,
@@ -242,7 +252,6 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
         }
         _isConnecting = false;
       });
-
     } catch (e) {
       setState(() {
         _connectionStatus = 'Enhanced connection failed: $e';
@@ -260,9 +269,9 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
     try {
       bool success = await WiFiForIoTPlugin.forceWifiUsage(true);
       setState(() {
-        _forceWifiStatus = success 
-          ? 'WiFi forced successfully (standard)' 
-          : 'WiFi force failed (standard)';
+        _forceWifiStatus = success
+            ? 'WiFi forced successfully (standard)'
+            : 'WiFi force failed (standard)';
         _isForcing = false;
       });
     } catch (e) {
@@ -286,9 +295,9 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
         retryDelay: 1500,
       );
       setState(() {
-        _forceWifiStatus = success 
-          ? 'WiFi forced successfully (with retry)' 
-          : 'WiFi force failed (with retry)';
+        _forceWifiStatus = success
+            ? 'WiFi forced successfully (with retry)'
+            : 'WiFi force failed (with retry)';
         _isForcing = false;
       });
     } catch (e) {
@@ -303,10 +312,10 @@ class _SamsungCompatibilityExampleState extends State<SamsungCompatibilityExampl
     try {
       // 1. 禁用强制 WiFi 使用
       await WiFiForIoTPlugin.forceWifiUsage(false);
-      
+
       // 2. 断开连接
       await WiFiForIoTPlugin.disconnect();
-      
+
       setState(() {
         _connectionStatus = 'Disconnected';
         _forceWifiStatus = 'WiFi force disabled';

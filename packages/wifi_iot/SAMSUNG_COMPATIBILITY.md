@@ -20,12 +20,19 @@
 bool success = await WiFiForIoTPlugin.forceWifiUsage(true);
 
 // 带重试的增强版本（推荐用于三星设备）
+// 现在使用原生 Android 重试逻辑，性能更好
 bool success = await WiFiForIoTPlugin.forceWifiUsageWithRetry(
   true,
   retryCount: 5,     // 重试次数
   retryDelay: 2000,  // 重试间隔（毫秒）
 );
 ```
+
+**重要改进：** `forceWifiUsageWithRetry` 现在在 Android 端实现了原生重试逻辑，包括：
+- 多重网络绑定策略
+- 智能网络发现
+- 超时处理和错误恢复
+- 自动回退到 Flutter 端重试（兼容性保证）
 
 ### 2. 连接后立即强制 WiFi 使用
 
