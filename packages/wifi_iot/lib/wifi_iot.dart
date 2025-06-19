@@ -145,6 +145,12 @@ class WiFiConnectionResult {
       case 'CONFIGURATION_FAILED':
         errorCode = WiFiConnectionError.CONFIGURATION_FAILED;
         break;
+      case 'NOT_CONNECTED':
+        errorCode = WiFiConnectionError.NOT_CONNECTED;
+        break;
+      case 'NETWORK_NOT_FOUND':
+        errorCode = WiFiConnectionError.NETWORK_NOT_FOUND;
+        break;
       default:
         // Fallback to message-based detection for backward compatibility
         if (e.message?.contains('WEP is not supported') == true) {

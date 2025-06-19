@@ -132,31 +132,117 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
             NEHotspotConfigurationManager.shared.apply(configuration) { [weak self] (error) in
                 guard let this = self else {
                     print("WiFi network not found")
-                    result(false)
+                    result(FlutterError(code: "NETWORK_NOT_FOUND",
+                                      message: "WiFi network not found",
+                                      details: "Unable to locate network with SSID: \(sSSID)"))
                     return
                 }
                 this.getSSID { (connectedSSID) -> () in
-                    if (error != nil) {
-                        if (error?.localizedDescription == "already associated.") {
-                            print("Connected to '\(connectedSSID ?? "<Unknown Network>")'")
+                    if let error = error {
+                        print("Connection error: \(error.localizedDescription)")
+
+                        // Handle specific iOS error cases
+                        let nsError = error as NSError
+                        switch nsError.code {
+                        case 1: // NEHotspotConfigurationErrorInvalid
+                            result(FlutterError(code: "CONFIGURATION_FAILED",
+                                              message: "Invalid network configuration",
+                                              details: error.localizedDescription))
+                        case 2: // NEHotspotConfigurationErrorInvalidSSID
+                            result(FlutterError(code: "INVALID_SSID",
+                                              message: "Invalid SSID",
+                                              details: error.localizedDescription))
+                        case 3: // NEHotspotConfigurationErrorInvalidWPAPassphrase
+                            result(FlutterError(code: "AUTHENTICATION_FAILED",
+                                              message: "Invalid WPA passphrase",
+                                              details: error.localizedDescription))
+                        case 4: // NEHotspotConfigurationErrorInvalidWEPPassphrase
+                            result(FlutterError(code: "AUTHENTICATION_FAILED",
+                                              message: "Invalid WEP passphrase",
+                                              details: error.localizedDescription))
+                        case 5: // NEHotspotConfigurationErrorUserDenied
+                            result(FlutterError(code: "PERMISSION_DENIED",
+                                              message: "User denied network access",
+                                              details: error.localizedDescription))
+                        case 6: // NEHotspotConfigurationErrorInternal
+                            result(FlutterError(code: "CONFIGURATION_FAILED",
+                                              message: "Internal configuration error",
+                                              details: error.localizedDescription))
+                        case 7: // NEHotspotConfigurationErrorPending
+                            result(FlutterError(code: "CONNECTION_TIMEOUT",
+                                              message: "Connection request is pending",
+                                              details: error.localizedDescription))
+                        case 8: // NEHotspotConfigurationErrorSystemConfiguration
+                            result(FlutterError(code: "CONFIGURATION_FAILED",
+                                              message: "System configuration error",
+                                              details: error.localizedDescription))
+                        case 9: // NEHotspotConfigurationErrorUnknown
+                            result(FlutterError(code: "UNKNOWN_ERROR",
+                                              message: "Unknown configuration error",
+                                              details: error.localizedDescription))
+                        case 10: // NEHotspotConfigurationErrorJoinOnceNotSupported
+                            result(FlutterError(code: "CONFIGURATION_FAILED",
+                                              message: "Join once not supported",
+                                              details: error.localizedDescription))
+                        case 11: // NEHotspotConfigurationErrorAlreadyAssociated
+                            // This is actually a success case - already connected
+                            print("Already connected to '\(connectedSSID ?? sSSID)'")
                             result(true)
-                        } else {
-                            print("Not Connected")
-                            result(false)
+                        case 12: // NEHotspotConfigurationErrorApplicationIsNotInForeground
+                            result(FlutterError(code: "PERMISSION_DENIED",
+                                              message: "Application is not in foreground",
+                                              details: error.localizedDescription))
+                        case 13: // NEHotspotConfigurationErrorInternalError
+                            result(FlutterError(code: "CONFIGURATION_FAILED",
+                                              message: "Internal system error",
+                                              details: error.localizedDescription))
+                        default:
+                            // Check for common error messages as fallback
+                            let errorMessage = error.localizedDescription.lowercased()
+                            if errorMessage.contains("already associated") {
+                                print("Already connected to '\(connectedSSID ?? sSSID)'")
+                                result(true)
+                            } else if errorMessage.contains("password") || errorMessage.contains("passphrase") {
+                                result(FlutterError(code: "AUTHENTICATION_FAILED",
+                                                  message: "Authentication failed - incorrect password",
+                                                  details: error.localizedDescription))
+                            } else if errorMessage.contains("timeout") {
+                                result(FlutterError(code: "CONNECTION_TIMEOUT",
+                                                  message: "Connection timeout",
+                                                  details: error.localizedDescription))
+                            } else if errorMessage.contains("denied") {
+                                result(FlutterError(code: "PERMISSION_DENIED",
+                                                  message: "Permission denied",
+                                                  details: error.localizedDescription))
+                            } else {
+                                result(FlutterError(code: "UNKNOWN_ERROR",
+                                                  message: "Connection failed",
+                                                  details: error.localizedDescription))
+                            }
                         }
                     } else if let connectedSSID = connectedSSID {
                         print("Connected to " + connectedSSID)
                         // Emit result of [isConnected] by checking if targetSSID is the same as connectedSSID.
-                        result(sSSID == connectedSSID)
+                        if sSSID == connectedSSID {
+                            result(true)
+                        } else {
+                            result(FlutterError(code: "NETWORK_UNAVAILABLE",
+                                              message: "Connected to different network",
+                                              details: "Expected: \(sSSID), Connected to: \(connectedSSID)"))
+                        }
                     } else {
                         print("WiFi network not found")
-                        result(false)
+                        result(FlutterError(code: "NETWORK_NOT_FOUND",
+                                          message: "WiFi network not found after connection attempt",
+                                          details: "Unable to verify connection to SSID: \(sSSID)"))
                     }
                 }
             }
         } else {
-            print("Not Connected")
-            result(nil)
+            print("iOS version not supported")
+            result(FlutterError(code: "CONFIGURATION_FAILED",
+                              message: "iOS version not supported",
+                              details: "NEHotspotConfiguration requires iOS 11.0 or later"))
             return
         }
     }
@@ -213,18 +299,22 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
     private func disconnect(result: @escaping FlutterResult) {
         if #available(iOS 11.0, *) {
             getSSID { (sSSID) in
-                if (sSSID != nil) {
-                    print("Trying to disconnect from '\(sSSID!)'")
-                    NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: sSSID ?? "")
+                if let ssid = sSSID {
+                    print("Trying to disconnect from '\(ssid)'")
+                    NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
                     result(true)
                 } else {
                     print("Not connected to a network")
-                    result(false)
+                    result(FlutterError(code: "NOT_CONNECTED",
+                                      message: "Not connected to any WiFi network",
+                                      details: "Cannot disconnect - device is not connected to any WiFi network"))
                 }
             }
         } else {
             print("disconnect not available on this iOS version")
-            result(nil)
+            result(FlutterError(code: "CONFIGURATION_FAILED",
+                              message: "iOS version not supported",
+                              details: "NEHotspotConfiguration requires iOS 11.0 or later"))
         }
     }
 
