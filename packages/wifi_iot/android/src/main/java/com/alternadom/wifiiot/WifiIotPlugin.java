@@ -903,8 +903,13 @@ public class WifiIotPlugin
     if (retryDelay == null)
       retryDelay = 1000;
 
+    // Make variables final for use in inner class
+    final int finalRetryCount = retryCount;
+    final int finalRetryDelay = retryDelay;
+
     Log.d(WifiIotPlugin.class.getSimpleName(),
-        "forceWifiUsageWithRetry: useWifi=" + useWifi + ", retryCount=" + retryCount + ", retryDelay=" + retryDelay);
+        "forceWifiUsageWithRetry: useWifi=" + useWifi + ", retryCount=" + finalRetryCount + ", retryDelay="
+            + finalRetryDelay);
 
     if (!useWifi) {
       // For disabling WiFi usage, use standard method
@@ -916,7 +921,7 @@ public class WifiIotPlugin
     new Thread(new Runnable() {
       @Override
       public void run() {
-        performWifiForceWithRetry(retryCount, retryDelay, poResult);
+        performWifiForceWithRetry(finalRetryCount, finalRetryDelay, poResult);
       }
     }).start();
   }
