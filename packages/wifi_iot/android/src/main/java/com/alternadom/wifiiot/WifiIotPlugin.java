@@ -926,7 +926,7 @@ public class WifiIotPlugin
     }).start();
   }
 
-  /// Perform WiFi force with retry logic
+  /// Perform WiFi force with retry logic_forceWifiWithMultipleStrategiesforceWifiUsageWithRetry
   private void performWifiForceWithRetry(int retryCount, int retryDelay, final Result poResult) {
     final ConnectivityManager manager = (ConnectivityManager) moContext.getSystemService(Context.CONNECTIVITY_SERVICE);
 
