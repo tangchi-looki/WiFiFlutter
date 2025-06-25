@@ -71,6 +71,7 @@ public class WifiIotPlugin
   private WifiManager.LocalOnlyHotspotReservation apReservation;
   private WIFI_AP_STATE localOnlyHotspotState = WIFI_AP_STATE.WIFI_AP_STATE_DISABLED;
   private ConnectivityManager.NetworkCallback networkCallback;
+  private boolean isNetworkCallbackRegistered = false;
   private List<WifiNetworkSuggestion> networkSuggestions;
   private List<String> ssidsToBeRemovedOnExit = new ArrayList<String>();
   private List<WifiNetworkSuggestion> suggestionsToBeRemovedOnExit = new ArrayList<>();
@@ -111,6 +112,20 @@ public class WifiIotPlugin
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !suggestionsToBeRemovedOnExit.isEmpty()) {
       moWiFi.removeNetworkSuggestions(suggestionsToBeRemovedOnExit);
     }
+
+    // Clean up NetworkCallback if registered
+    if (networkCallback != null && isNetworkCallbackRegistered && moContext != null) {
+      try {
+        final ConnectivityManager connectivityManager = (ConnectivityManager) moContext
+            .getSystemService(Context.CONNECTIVITY_SERVICE);
+        connectivityManager.unregisterNetworkCallback(networkCallback);
+        Log.d(WifiIotPlugin.class.getSimpleName(), "NetworkCallback unregistered in cleanup");
+      } catch (IllegalArgumentException e) {
+        Log.w(WifiIotPlugin.class.getSimpleName(), "NetworkCallback was not registered in cleanup", e);
+      }
+      isNetworkCallbackRegistered = false;
+    }
+
     // setting all members to null to avoid memory leaks
     channel = null;
     eventChannel = null;
@@ -118,6 +133,8 @@ public class WifiIotPlugin
     moContext = null;
     moWiFi = null;
     moWiFiAPManager = null;
+    networkCallback = null;
+    joinedNetwork = null;
   }
 
   @Override
@@ -1294,12 +1311,19 @@ public class WifiIotPlugin
       // noinspection deprecation
       disconnected = moWiFi.disconnect();
     } else {
-      if (networkCallback != null) {
+      if (networkCallback != null && isNetworkCallbackRegistered) {
         final ConnectivityManager connectivityManager = (ConnectivityManager) moContext
             .getSystemService(Context.CONNECTIVITY_SERVICE);
-        connectivityManager.unregisterNetworkCallback(networkCallback);
+        try {
+          connectivityManager.unregisterNetworkCallback(networkCallback);
+          Log.d(WifiIotPlugin.class.getSimpleName(), "NetworkCallback unregistered in disconnect");
+          disconnected = true;
+        } catch (IllegalArgumentException e) {
+          Log.w(WifiIotPlugin.class.getSimpleName(), "NetworkCallback was not registered in disconnect", e);
+          disconnected = true; // Consider it successful since the goal is to disconnect
+        }
+        isNetworkCallbackRegistered = false;
         networkCallback = null;
-        disconnected = true;
         joinedNetwork = null;
       } else if (networkSuggestions != null) {
         final int networksRemoved = moWiFi.removeNetworkSuggestions(networkSuggestions);
@@ -1597,8 +1621,17 @@ public class WifiIotPlugin
         final ConnectivityManager connectivityManager = (ConnectivityManager) moContext
             .getSystemService(Context.CONNECTIVITY_SERVICE);
 
-        if (networkCallback != null)
-          connectivityManager.unregisterNetworkCallback(networkCallback);
+        // Safely unregister previous callback if it was registered
+        if (networkCallback != null && isNetworkCallbackRegistered) {
+          try {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+            Log.d(WifiIotPlugin.class.getSimpleName(), "Successfully unregistered previous NetworkCallback");
+          } catch (IllegalArgumentException e) {
+            Log.w(WifiIotPlugin.class.getSimpleName(),
+                "NetworkCallback was not registered, ignoring unregister attempt", e);
+          }
+          isNetworkCallbackRegistered = false;
+        }
 
         networkCallback = new ConnectivityManager.NetworkCallback() {
           boolean resultSent = false;
@@ -1616,8 +1649,15 @@ public class WifiIotPlugin
           @Override
           public void onUnavailable() {
             super.onUnavailable();
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-              connectivityManager.unregisterNetworkCallback(this);
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && isNetworkCallbackRegistered) {
+              try {
+                connectivityManager.unregisterNetworkCallback(this);
+                isNetworkCallbackRegistered = false;
+                Log.d(WifiIotPlugin.class.getSimpleName(), "NetworkCallback unregistered in onUnavailable");
+              } catch (IllegalArgumentException e) {
+                Log.w(WifiIotPlugin.class.getSimpleName(), "NetworkCallback was not registered in onUnavailable", e);
+                isNetworkCallbackRegistered = false;
+              }
             }
             if (!resultSent) {
               poResult.error("NETWORK_UNAVAILABLE", "Network unavailable or connection timeout",
@@ -1630,8 +1670,15 @@ public class WifiIotPlugin
           @Override
           public void onLost(Network network) {
             super.onLost(network);
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-              connectivityManager.unregisterNetworkCallback(this);
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && isNetworkCallbackRegistered) {
+              try {
+                connectivityManager.unregisterNetworkCallback(this);
+                isNetworkCallbackRegistered = false;
+                Log.d(WifiIotPlugin.class.getSimpleName(), "NetworkCallback unregistered in onLost");
+              } catch (IllegalArgumentException e) {
+                Log.w(WifiIotPlugin.class.getSimpleName(), "NetworkCallback was not registered in onLost", e);
+                isNetworkCallbackRegistered = false;
+              }
             }
             if (!resultSent) {
               poResult.error("NETWORK_LOST", "Network connection lost", "Network disconnected unexpectedly");
@@ -1643,6 +1690,8 @@ public class WifiIotPlugin
 
         connectivityManager.requestNetwork(
             networkRequest, networkCallback, handler, timeoutInSeconds * 1000);
+        isNetworkCallbackRegistered = true;
+        Log.d(WifiIotPlugin.class.getSimpleName(), "NetworkCallback registered successfully");
       }
     }
   }
