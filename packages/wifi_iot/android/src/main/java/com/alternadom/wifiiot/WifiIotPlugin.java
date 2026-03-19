@@ -43,6 +43,7 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -1000,6 +1001,14 @@ public class WifiIotPlugin
         Boolean withInternet = poCall.argument("with_internet");
         Boolean isHidden = poCall.argument("is_hidden");
         Integer timeoutInSeconds = poCall.argument("timeout_in_seconds");
+        ArrayList<Integer> preferredChannelsList = poCall.argument("preferred_channels");
+        int[] preferredChannels = null;
+        if (preferredChannelsList != null) {
+          preferredChannels = new int[preferredChannelsList.size()];
+          for (int i = 0; i < preferredChannelsList.size(); i++) {
+            preferredChannels[i] = preferredChannelsList.get(i);
+          }
+        }
 
         connectTo(
             poResult,
@@ -1010,7 +1019,8 @@ public class WifiIotPlugin
             joinOnce,
             withInternet,
             isHidden,
-            timeoutInSeconds);
+            timeoutInSeconds,
+            preferredChannels);
       }
     }.start();
   }
@@ -1200,7 +1210,8 @@ public class WifiIotPlugin
             joinOnce,
             withInternet,
             false,
-            timeoutInSeconds);
+            timeoutInSeconds,
+            null);
       }
     }.start();
   }
@@ -1436,7 +1447,8 @@ public class WifiIotPlugin
       final Boolean joinOnce,
       final Boolean withInternet,
       final Boolean isHidden,
-      final Integer timeoutInSeconds) {
+      final Integer timeoutInSeconds,
+      final int[] preferredChannels) {
     final Handler handler = new Handler(Looper.getMainLooper());
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       final boolean connected = connectToDeprecated(ssid, bssid, password, security, joinOnce, isHidden);
@@ -1567,6 +1579,13 @@ public class WifiIotPlugin
         // set security
         if (security != null && security.toUpperCase().equals("WPA")) {
           builder.setWpa2Passphrase(password);
+        }
+
+        if(preferredChannels != null){
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            builder.setPreferredChannelsFrequenciesMhz(preferredChannels);
+            Log.i(WifiIotPlugin.class.getSimpleName(), "Preferred channels set for Android 14+: " + Arrays.toString(preferredChannels));
+          }
         }
 
         final NetworkRequest networkRequest = new NetworkRequest.Builder()

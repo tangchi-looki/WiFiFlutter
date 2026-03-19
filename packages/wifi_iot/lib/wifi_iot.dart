@@ -494,6 +494,7 @@ class WiFiForIoTPlugin {
     bool withInternet = false,
     bool isHidden = false,
     int timeoutInSeconds = 30,
+    List<int>? preferredChannels,
   }) async {
     final result = await connectWithResult(
       ssid,
@@ -504,6 +505,7 @@ class WiFiForIoTPlugin {
       withInternet: withInternet,
       isHidden: isHidden,
       timeoutInSeconds: timeoutInSeconds,
+      preferredChannels: preferredChannels,
     );
     return result.success;
   }
@@ -555,6 +557,7 @@ class WiFiForIoTPlugin {
     bool withInternet = false,
     bool isHidden = false,
     int timeoutInSeconds = 30,
+    List<int>? preferredChannels,
   }) async {
     // https://en.wikipedia.org/wiki/Service_set_(802.11_network)
     // According to IEEE Std 802.11, a SSID must be between 0 and 32 bytes
@@ -593,6 +596,7 @@ class WiFiForIoTPlugin {
         "is_hidden": isHidden,
         "timeout_in_seconds": timeoutInSeconds,
         "security": serializeNetworkSecurityMap[security],
+        if (preferredChannels != null) "preferred_channels": preferredChannels,
       });
 
       if (bResult == true) {

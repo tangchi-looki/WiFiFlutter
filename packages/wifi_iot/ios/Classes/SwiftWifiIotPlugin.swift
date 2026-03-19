@@ -124,10 +124,12 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
         let sPassword = (call.arguments as? [String : AnyObject])?["password"] as? String? ?? nil
         let bJoinOnce = (call.arguments as? [String : AnyObject])?["join_once"] as! Bool?
         let sSecurity = (call.arguments as? [String : AnyObject])?["security"] as! String?
+        let bHidden = (call.arguments as? [String : AnyObject])?["is_hidden"] as! Bool?
 
         if #available(iOS 11.0, *) {
             let configuration = initHotspotConfiguration(ssid: sSSID, passphrase: sPassword, security: sSecurity)
             configuration.joinOnce = bJoinOnce ?? false
+            configuration.hidden = bHidden ?? false
 
             NEHotspotConfigurationManager.shared.apply(configuration) { [weak self] (error) in
                 guard let this = self else {
