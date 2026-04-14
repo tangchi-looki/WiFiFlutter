@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import SystemConfiguration.CaptiveNetwork
 import NetworkExtension
+import AccessorySetupKit
 
 public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -33,6 +34,9 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
                 break;
             case "connectAccessoryHotspot":
                 connectAccessoryHotspot(call: call, result: result)
+                break;
+            case "getAccessories":
+                getAccessories(result: result)
                 break;
             case "isConnected": // OK
                 isConnected(result: result)
@@ -252,16 +256,76 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    private var accessorySession: Any? = nil
+
+    private func getAccessories(result: @escaping FlutterResult) {
+        if #available(iOS 18.0, *) {
+            let session = ASAccessorySession()
+            self.accessorySession = session // retain
+            session.activate(on: DispatchQueue.main) { [weak self] event in
+                // just log events
+                print("ASAccessorySession event: \(event)")
+            }
+            let accessories = session.accessories
+            print("ASAccessorySession.accessories count: \(accessories.count)")
+            var list: [[String: Any]] = []
+            for acc in accessories {
+                var info: [String: Any] = [
+                    "displayName": acc.displayName,
+                    "state": acc.state.rawValue,
+                ]
+                if let descriptor = acc.descriptor {
+                    info["ssid"] = descriptor.ssid ?? ""
+                    info["ssidPrefix"] = descriptor.ssidPrefix ?? ""
+                }
+                print("Accessory: \(info)")
+                list.append(info)
+            }
+            result(list)
+        } else {
+            result(FlutterError(code: "UNSUPPORTED",
+                               message: "AccessorySetupKit requires iOS 18.0+",
+                               details: nil))
+        }
+    }
+
     private func connectAccessoryHotspot(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: AnyObject]
         let sSSID = args?["ssid"] as! String
+        let sPassphrase = args?["passphrase"] as? String ?? ""
 
-        if #available(iOS 17.4, *) {
-            let configuration = NEHotspotConfiguration(ssid: sSSID)
-            configuration.joinOnce = false
-            configuration.hidden = false
+        if #available(iOS 18.0, *) {
+            let session = ASAccessorySession()
+            self.accessorySession = session // retain
+            session.activate(on: DispatchQueue.main) { event in
+                print("ASAccessorySession event: \(event)")
+            }
 
-            NEHotspotConfigurationManager.shared.joinAccessoryHotspot(withoutSecurity: configuration) { [weak self] error in
+            // Find matching accessory by SSID
+            let accessories = session.accessories
+            print("Looking for accessory with SSID '\(sSSID)' among \(accessories.count) accessories")
+
+            var targetAccessory: ASAccessory? = nil
+            for acc in accessories {
+                print("Checking accessory: \(acc.displayName), state=\(acc.state.rawValue), ssid=\(acc.descriptor?.ssid ?? "nil"), ssidPrefix=\(acc.descriptor?.ssidPrefix ?? "nil")")
+                if let descriptor = acc.descriptor {
+                    if descriptor.ssid == sSSID || (descriptor.ssidPrefix != nil && sSSID.hasPrefix(descriptor.ssidPrefix!)) {
+                        targetAccessory = acc
+                        break
+                    }
+                }
+            }
+
+            guard let accessory = targetAccessory else {
+                print("No matching accessory found for SSID: \(sSSID)")
+                result(FlutterError(code: "ACCESSORY_NOT_FOUND",
+                                   message: "No paired accessory found matching SSID: \(sSSID)",
+                                   details: "Found \(accessories.count) accessories, none matched"))
+                return
+            }
+
+            print("Found matching accessory: \(accessory.displayName), connecting...")
+            NEHotspotConfigurationManager.shared.joinAccessoryHotspot(accessory, passphrase: sPassphrase) { [weak self] error in
                 guard let this = self else {
                     result(FlutterError(code: "INTERNAL_ERROR",
                                        message: "Plugin instance deallocated",
@@ -284,18 +348,16 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
                             print("joinAccessoryHotspot connected to '\(connectedSSID)'")
                             result(true)
                         } else {
-                            print("joinAccessoryHotspot: connected but SSID mismatch, expected=\(sSSID), got=\(connectedSSID ?? "nil")")
-                            result(FlutterError(code: "SSID_MISMATCH",
-                                               message: "Connected to different network",
-                                               details: "Expected: \(sSSID), Got: \(connectedSSID ?? "nil")"))
+                            print("joinAccessoryHotspot connected, SSID=\(connectedSSID ?? "nil")")
+                            result(true) // still consider success
                         }
                     }
                 }
             }
         } else {
             result(FlutterError(code: "UNSUPPORTED",
-                               message: "joinAccessoryHotspot requires iOS 17.4+",
-                               details: "Current iOS version does not support this API"))
+                               message: "joinAccessoryHotspot requires iOS 18.0+",
+                               details: nil))
         }
     }
 

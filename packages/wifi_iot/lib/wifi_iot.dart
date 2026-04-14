@@ -625,20 +625,38 @@ class WiFiForIoTPlugin {
     }
   }
 
-  /// Connect to an MFi accessory hotspot without security (iOS 17.4+).
+  /// Get paired accessories from AccessorySetupKit (iOS 18.0+).
   ///
-  /// Uses NEHotspotConfigurationManager.joinAccessoryHotspot(withoutSecurity:)
-  /// which is optimized for MFi accessories — no user confirmation dialog,
-  /// no password required.
+  /// Returns a list of paired accessory info maps, each containing:
+  /// - displayName: String
+  /// - state: int
+  /// - ssid: String (if available)
+  /// - ssidPrefix: String (if available)
+  static Future<List<Map<String, dynamic>>> getAccessories() async {
+    try {
+      final List<dynamic>? result = await _channel.invokeMethod('getAccessories');
+      return result?.cast<Map<dynamic, dynamic>>().map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
+    } on PlatformException catch (e) {
+      print("getAccessories error: ${e.code} - ${e.message}");
+      return [];
+    }
+  }
+
+  /// Connect to an MFi accessory hotspot (iOS 18.0+).
   ///
-  /// Falls back to standard [connect] on unsupported platforms/versions.
+  /// Uses NEHotspotConfigurationManager.joinAccessoryHotspot() which is
+  /// optimized for MFi accessories — may skip full channel scan.
+  ///
+  /// Requires the accessory to be previously paired via AccessorySetupKit.
   ///
   /// @param [ssid] The SSID of the accessory hotspot.
+  /// @param [passphrase] The passphrase for the hotspot.
   /// @returns True if connected successfully, false otherwise.
-  static Future<bool> connectAccessoryHotspot(String ssid) async {
+  static Future<bool> connectAccessoryHotspot(String ssid, {String passphrase = ''}) async {
     try {
       final bool? result = await _channel.invokeMethod('connectAccessoryHotspot', {
         "ssid": ssid,
+        "passphrase": passphrase,
       });
       return result == true;
     } on PlatformException catch (e) {
