@@ -625,6 +625,28 @@ class WiFiForIoTPlugin {
     }
   }
 
+  /// Connect to an MFi accessory hotspot without security (iOS 17.4+).
+  ///
+  /// Uses NEHotspotConfigurationManager.joinAccessoryHotspot(withoutSecurity:)
+  /// which is optimized for MFi accessories — no user confirmation dialog,
+  /// no password required.
+  ///
+  /// Falls back to standard [connect] on unsupported platforms/versions.
+  ///
+  /// @param [ssid] The SSID of the accessory hotspot.
+  /// @returns True if connected successfully, false otherwise.
+  static Future<bool> connectAccessoryHotspot(String ssid) async {
+    try {
+      final bool? result = await _channel.invokeMethod('connectAccessoryHotspot', {
+        "ssid": ssid,
+      });
+      return result == true;
+    } on PlatformException catch (e) {
+      print("connectAccessoryHotspot error: ${e.code} - ${e.message}");
+      return false;
+    }
+  }
+
   /// Register a network with the system in the device's wireless networks.
   /// Android only.
   ///

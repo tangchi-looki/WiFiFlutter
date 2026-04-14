@@ -31,6 +31,9 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
             case "connect": // OK
                 connect(call: call, result: result)
                 break;
+            case "connectAccessoryHotspot":
+                connectAccessoryHotspot(call: call, result: result)
+                break;
             case "isConnected": // OK
                 isConnected(result: result)
                 break;
@@ -246,6 +249,53 @@ public class SwiftWifiIotPlugin: NSObject, FlutterPlugin {
                               message: "iOS version not supported",
                               details: "NEHotspotConfiguration requires iOS 11.0 or later"))
             return
+        }
+    }
+
+    private func connectAccessoryHotspot(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let args = call.arguments as? [String: AnyObject]
+        let sSSID = args?["ssid"] as! String
+
+        if #available(iOS 17.4, *) {
+            let configuration = NEHotspotConfiguration(ssid: sSSID)
+            configuration.joinOnce = false
+            configuration.hidden = false
+
+            NEHotspotConfigurationManager.shared.joinAccessoryHotspot(withoutSecurity: configuration) { [weak self] error in
+                guard let this = self else {
+                    result(FlutterError(code: "INTERNAL_ERROR",
+                                       message: "Plugin instance deallocated",
+                                       details: nil))
+                    return
+                }
+                if let error = error {
+                    let nsError = error as NSError
+                    print("joinAccessoryHotspot error: \(nsError.code) - \(error.localizedDescription)")
+                    if nsError.code == 11 { // AlreadyAssociated
+                        result(true)
+                    } else {
+                        result(FlutterError(code: "CONNECTION_FAILED",
+                                           message: "joinAccessoryHotspot failed",
+                                           details: "code=\(nsError.code), \(error.localizedDescription)"))
+                    }
+                } else {
+                    this.getSSID { connectedSSID in
+                        if let connectedSSID = connectedSSID, connectedSSID == sSSID {
+                            print("joinAccessoryHotspot connected to '\(connectedSSID)'")
+                            result(true)
+                        } else {
+                            print("joinAccessoryHotspot: connected but SSID mismatch, expected=\(sSSID), got=\(connectedSSID ?? "nil")")
+                            result(FlutterError(code: "SSID_MISMATCH",
+                                               message: "Connected to different network",
+                                               details: "Expected: \(sSSID), Got: \(connectedSSID ?? "nil")"))
+                        }
+                    }
+                }
+            }
+        } else {
+            result(FlutterError(code: "UNSUPPORTED",
+                               message: "joinAccessoryHotspot requires iOS 17.4+",
+                               details: "Current iOS version does not support this API"))
         }
     }
 
